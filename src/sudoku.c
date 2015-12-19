@@ -1,7 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define BASE_SIZE_MIN 1UL
 #define BASE_SIZE_MAX 16UL
 
 typedef struct cell_s cell_t;
@@ -28,6 +27,7 @@ void print_grid(void);
 void free_data(void);
 void free_allowed_matrix(unsigned long **, unsigned long);
 
+int digits_ref[BASE_SIZE_MAX] = { 1, 1, 1, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3 }, digits;
 unsigned long base_size, line_size, grid_size, **allowed_in_rows = NULL, **allowed_in_columns = NULL, **allowed_in_blocks = NULL, cost, solutions;
 cell_t *cells = NULL, *cell_last;
 
@@ -35,10 +35,11 @@ int main(void) {
 int exit_code;
 unsigned long grids, i;
 cell_t *cell;
-	if (scanf("%lu", &base_size) != 1 || base_size < BASE_SIZE_MIN || base_size > BASE_SIZE_MAX) {
-		fprintf(stderr, "Base size must lie between %lu and %lu\n", BASE_SIZE_MIN, BASE_SIZE_MAX);
+	if (scanf("%lu", &base_size) != 1 || base_size < 1 || base_size > BASE_SIZE_MAX) {
+		fprintf(stderr, "Base size must lie between 1 and %lu\n", BASE_SIZE_MAX);
 		return EXIT_FAILURE;
 	}
+	digits = digits_ref[base_size-1];
 	line_size = base_size*base_size;
 	grid_size = line_size*line_size;
 	cells = malloc(sizeof(cell_t)*(grid_size+1));
@@ -230,9 +231,9 @@ unsigned long i, j;
 cell_t *cell;
 	puts("");
 	for (i = 0, cell = cells+1; i < line_size; i++) {
-		printf("%lu", cell->value);
+		printf("%*lu", digits, cell->value);
 		for (j = 1, cell++; j < line_size; j++, cell++) {
-			printf(" %lu", cell->value);
+			printf(" %*lu", digits, cell->value);
 		}
 		puts("");
 	}

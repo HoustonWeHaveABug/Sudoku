@@ -1,7 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define BASE_SIZE_MIN 1UL
 #define BASE_SIZE_MAX 16UL
 #define CONSTRAINTS_PER_ROW 4UL
 
@@ -19,25 +18,32 @@ struct node_s {
 	node_t *down;
 	node_t *left;
 	node_t *top;
-	unsigned long rows_or_value;
-	cell_t *cell;
-	node_t *column;
+	union {
+		cell_t *cell;
+		unsigned long value;
+	};
+	union {
+		node_t *column;
+		unsigned long rows;
+	};
 };
 
 void init_column(node_t *, node_t *);
 void init_rows(unsigned long, unsigned long);
 void init_cell_rows(unsigned long, unsigned long, unsigned long, unsigned long);
-void init_row_node(node_t *, node_t **, unsigned long, cell_t *, node_t *);
+void init_row_node(node_t *, node_t **, cell_t *, unsigned long, node_t *);
 void link_left(node_t *, node_t *);
 void link_top(node_t *, node_t *);
 int solve_grid(void);
 int set_cell(cell_t *, node_t *);
 void unset_cell(cell_t *, node_t *);
 void search(void);
+void backtrack(node_t *);
 void cover_column(node_t *);
 void uncover_column(node_t *);
 void print_grid(void);
 
+int digits_ref[BASE_SIZE_MAX] = { 1, 1, 1, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3 }, digits;
 unsigned long base_size, line_size, grid_size, cost, solutions;
 cell_t *cells, *cells_out;
 node_t *nodes, *nodes_out, **tops, *header, *row_node;
@@ -47,10 +53,11 @@ int exit_code;
 unsigned long columns, grids, i;
 cell_t *cell;
 node_t *node, **top;
-	if (scanf("%lu", &base_size) != 1 || base_size < BASE_SIZE_MIN || base_size > BASE_SIZE_MAX) {
-		fprintf(stderr, "Base size must lie between %lu and %lu\n", BASE_SIZE_MIN, BASE_SIZE_MAX);
+	if (scanf("%lu", &base_size) != 1 || base_size < 1 || base_size > BASE_SIZE_MAX) {
+		fprintf(stderr, "Base size must lie between 1 and %lu\n", BASE_SIZE_MAX);
 		return EXIT_FAILURE;
 	}
+	digits = digits_ref[base_size-1];
 	line_size = base_size*base_size;
 	grid_size = line_size*line_size;
 	cells = malloc(sizeof(cell_t)*grid_size);
@@ -108,7 +115,7 @@ node_t *node, **top;
 }
 
 void init_column(node_t *node, node_t *left) {
-	node->rows_or_value = line_size;
+	node->rows = line_size;
 	link_left(node, left);
 }
 
@@ -123,18 +130,24 @@ cell_t *cell;
 void init_cell_rows(unsigned long cell_index, unsigned long row_index, unsigned long column_index, unsigned long block_index) {
 unsigned long i;
 	for (i = 0; i < line_size; i++) {
-		init_row_node(row_node+3, tops+cell_index, i+1, cells+cell_index, nodes+cell_index);
-		init_row_node(row_node-1, tops+row_index+i, i+1, cells+cell_index, nodes+row_index+i);
-		init_row_node(row_node-1, tops+column_index+i, i+1, cells+cell_index, nodes+column_index+i);
-		init_row_node(row_node-1, tops+block_index+i, i+1, cells+cell_index, nodes+block_index+i);
+		init_row_node(row_node+3, tops+cell_index, cells+cell_index, i+1, nodes+cell_index);
+		init_row_node(row_node-1, tops+row_index+i, cells+cell_index, i+1, nodes+row_index+i);
+		init_row_node(row_node-1, tops+column_index+i, cells+cell_index, i+1, nodes+column_index+i);
+		init_row_node(row_node-1, tops+block_index+i, cells+cell_index, i+1, nodes+block_index+i);
 	}
 }
 
-void init_row_node(node_t *left, node_t **top, unsigned long value, cell_t *cell, node_t *column) {
+void init_row_node(node_t *left, node_t **top, cell_t *cell, unsigned long value, node_t *column) {
 	link_left(row_node, left);
 	link_top(row_node, *top);
-	row_node->rows_or_value = value;
-	row_node->cell = cell;
+	if (column < nodes_out) {
+		column->cell = cell;
+		row_node->value = value;
+	}
+	else {
+		row_node->cell = cell;
+		column->value = value;
+	}
 	row_node->column = column;
 	*top = row_node++;
 }
@@ -176,7 +189,7 @@ node_t *row, *node;
 	}
 	if (cell->value) {
 		cover_column(column);
-		for (row = column->down; row != column && row->rows_or_value != cell->value; row = row->down);
+		for (row = column->down; row != column && row->value != cell->value; row = row->down);
 		if (row != column) {
 			for (node = row->right; node != row; node = node->right) {
 				cover_column(node->column);
@@ -193,7 +206,7 @@ node_t *row, *node;
 void unset_cell(cell_t *cell, node_t *column) {
 node_t *row, *node;
 	if (cell->value) {
-		for (row = column->down; row != column && row->rows_or_value != cell->value; row = row->down);
+		for (row = column->down; row != column && row->value != cell->value; row = row->down);
 		if (row != column) {
 			for (node = row->left; node != row; node = node->left) {
 				uncover_column(node->column);
@@ -205,7 +218,7 @@ node_t *row, *node;
 }
 
 void search(void) {
-node_t *column, *node, *row;
+node_t *column, *node;
 	cost++;
 	if (header->right == header) {
 		solutions++;
@@ -214,23 +227,37 @@ node_t *column, *node, *row;
 	else {
 		column = header->right;
 		for (node = column->right; node != header; node = node->right) {
-			if (node->rows_or_value < column->rows_or_value) {
+			if (node->rows < column->rows) {
 				column = node;
 			}
 		}
 		cover_column(column);
-		for (row = column->down; row != column; row = row->down) {
-			row->cell->value = row->rows_or_value;
-			for (node = row->right; node != row; node = node->right) {
-				cover_column(node->column);
+		if (column < nodes_out) {
+			for (node = column->down; node != column; node = node->down) {
+				column->cell->value = node->value;
+				backtrack(node);
+				column->cell->value = 0;
 			}
-			search();
-			for (node = row->left; node != row; node = node->left) {
-				uncover_column(node->column);
+		}
+		else {
+			for (node = column->down; node != column; node = node->down) {
+				node->cell->value = column->value;
+				backtrack(node);
+				node->cell->value = 0;
 			}
-			row->cell->value = 0;
 		}
 		uncover_column(column);
+	}
+}
+
+void backtrack(node_t *row) {
+node_t *node;
+	for (node = row->right; node != row; node = node->right) {
+		cover_column(node->column);
+	}
+	search();
+	for (node = row->left; node != row; node = node->left) {
+		uncover_column(node->column);
 	}
 }
 
@@ -240,7 +267,7 @@ node_t *row, *node;
 	column->left->right = column->right;
 	for (row = column->down; row != column; row = row->down) {
 		for (node = row->right; node != row; node = node->right) {
-			node->column->rows_or_value--;
+			node->column->rows--;
 			node->down->top = node->top;
 			node->top->down = node->down;
 		}
@@ -252,7 +279,7 @@ node_t *row, *node;
 	for (row = column->top; row != column; row = row->top) {
 		for (node = row->left; node != row; node = node->left) {
 			node->top->down = node->down->top = node;
-			node->column->rows_or_value++;
+			node->column->rows++;
 		}
 	}
 	column->left->right = column->right->left = column;
@@ -263,9 +290,9 @@ unsigned long i, j;
 cell_t *cell;
 	puts("");
 	for (i = 0, cell = cells; i < line_size; i++) {
-		printf("%lu", cell->value);
+		printf("%*lu", digits, cell->value);
 		for (j = 1, cell++; j < line_size; j++, cell++) {
-			printf(" %lu", cell->value);
+			printf(" %*lu", digits, cell->value);
 		}
 		puts("");
 	}

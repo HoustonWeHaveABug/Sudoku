@@ -2,7 +2,6 @@
 #include <stdlib.h>
 #include <time.h>
 
-#define BASE_SIZE_MIN 1UL
 #define BASE_SIZE_MAX 16UL
 #define CONSTRAINTS_PER_ROW 4UL
 
@@ -21,15 +20,20 @@ struct node_s {
 	node_t *down;
 	node_t *left;
 	node_t *top;
-	unsigned long rows_or_value;
-	cell_t *cell;
-	node_t *column;
+	union {
+		cell_t *cell;
+		unsigned long value;
+	};
+	union {
+		node_t *column;
+		unsigned long rows;
+	};
 };
 
 void init_column(node_t *, node_t *);
 void init_rows(unsigned long, unsigned long);
 void init_cell_rows(unsigned long, unsigned long, unsigned long, unsigned long);
-void init_row_node(node_t *, node_t **, unsigned long, cell_t *, node_t *);
+void init_row_node(node_t *, node_t **, cell_t *, unsigned long, node_t *);
 void link_left(node_t *, node_t *);
 void link_top(node_t *, node_t *);
 int generate_grid(void);
@@ -43,6 +47,7 @@ void cover_column(node_t *);
 void uncover_column(node_t *);
 void print_grid(void);
 
+int digits_ref[BASE_SIZE_MAX] = { 1, 1, 1, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3 }, digits;
 unsigned long base_size, line_size, grid_size, cost, solutions;
 cell_t *cells, *cells_out, **cells_rand, **cells_rand_out;
 node_t *nodes, *nodes_out, **tops, *header, *row_node;
@@ -52,10 +57,11 @@ int exit_code;
 unsigned long columns, grids, i;
 cell_t *cell, **cell_rand;
 node_t *node, **top;
-	if (scanf("%lu", &base_size) != 1 || base_size < BASE_SIZE_MIN || base_size > BASE_SIZE_MAX) {
-		fprintf(stderr, "Base size must lie between %lu and %lu\n", BASE_SIZE_MIN, BASE_SIZE_MAX);
+	if (scanf("%lu", &base_size) != 1 || base_size < 1 || base_size > BASE_SIZE_MAX) {
+		fprintf(stderr, "Base size must lie between 1 and %lu\n", BASE_SIZE_MAX);
 		return EXIT_FAILURE;
 	}
+	digits = digits_ref[base_size-1];
 	line_size = base_size*base_size;
 	grid_size = line_size*line_size;
 	cells = malloc(sizeof(cell_t)*grid_size);
@@ -127,7 +133,7 @@ node_t *node, **top;
 }
 
 void init_column(node_t *node, node_t *left) {
-	node->rows_or_value = line_size;
+	node->rows = line_size;
 	link_left(node, left);
 }
 
@@ -142,18 +148,24 @@ cell_t *cell;
 void init_cell_rows(unsigned long cell_index, unsigned long row_index, unsigned long column_index, unsigned long block_index) {
 unsigned long i;
 	for (i = 0; i < line_size; i++) {
-		init_row_node(row_node+3, tops+cell_index, i+1, cells+cell_index, nodes+cell_index);
-		init_row_node(row_node-1, tops+row_index+i, i+1, cells+cell_index, nodes+row_index+i);
-		init_row_node(row_node-1, tops+column_index+i, i+1, cells+cell_index, nodes+column_index+i);
-		init_row_node(row_node-1, tops+block_index+i, i+1, cells+cell_index, nodes+block_index+i);
+		init_row_node(row_node+3, tops+cell_index, cells+cell_index, i+1, nodes+cell_index);
+		init_row_node(row_node-1, tops+row_index+i, cells+cell_index, i+1, nodes+row_index+i);
+		init_row_node(row_node-1, tops+column_index+i, cells+cell_index, i+1, nodes+column_index+i);
+		init_row_node(row_node-1, tops+block_index+i, cells+cell_index, i+1, nodes+block_index+i);
 	}
 }
 
-void init_row_node(node_t *left, node_t **top, unsigned long value, cell_t *cell, node_t *column) {
+void init_row_node(node_t *left, node_t **top, cell_t *cell, unsigned long value, node_t *column) {
 	link_left(row_node, left);
 	link_top(row_node, *top);
-	row_node->rows_or_value = value;
-	row_node->cell = cell;
+	if (column < nodes_out) {
+		column->cell = cell;
+		row_node->value = value;
+	}
+	else {
+		row_node->cell = cell;
+		column->value = value;
+	}
 	row_node->column = column;
 	*top = row_node++;
 }
@@ -219,21 +231,26 @@ node_t *column, *row, *node;
 	}
 	else {
 		column = column_min();
-		if (column->rows_or_value) {
-			rows_rand = malloc(sizeof(unsigned long)*column->rows_or_value);
+		if (column->rows) {
+			rows_rand = malloc(sizeof(unsigned long)*column->rows);
 			if (!rows_rand) {
 				fprintf(stderr, "Error allocating memory for rand rows\n");
 				return -1;
 			}
-			for (i = 0; i < column->rows_or_value; i++) {
+			for (i = 0; i < column->rows; i++) {
 				rows_rand[i] = i;
 			}
-			values = column->rows_or_value;
+			values = column->rows;
 			do {
 				row_rand = erand(values);
 				cover_column(column);
 				for (i = 0, row = column->down; i < row_rand; i++, row = row->down);
-				row->cell->value = row->rows_or_value;
+				if (column < nodes_out) {
+					column->cell->value = row->value;
+				}
+				else {
+					row->cell->value = column->value;
+				}
 				for (node = row->right; node != row; node = node->right) {
 					cover_column(node->column);
 				}
@@ -266,11 +283,9 @@ void set_cell(cell_t *cell, node_t *column) {
 node_t *row, *node;
 	if (cell->value) {
 		cover_column(column);
-		for (row = column->down; row != column && row->rows_or_value != cell->value; row = row->down);
-		if (row != column) {
-			for (node = row->right; node != row; node = node->right) {
-				cover_column(node->column);
-			}
+		for (row = column->down; row != column && row->value != cell->value; row = row->down);
+		for (node = row->right; node != row; node = node->right) {
+			cover_column(node->column);
 		}
 	}
 }
@@ -278,11 +293,9 @@ node_t *row, *node;
 void unset_cell(cell_t *cell, node_t *column) {
 node_t *row, *node;
 	if (cell->value) {
-		for (row = column->down; row != column && row->rows_or_value != cell->value; row = row->down);
-		if (row != column) {
-			for (node = row->left; node != row; node = node->left) {
-				uncover_column(node->column);
-			}
+		for (row = column->down; row != column && row->value != cell->value; row = row->down);
+		for (node = row->left; node != row; node = node->left) {
+			uncover_column(node->column);
 		}
 		uncover_column(column);
 	}
@@ -313,7 +326,7 @@ node_t *column, *row, *node;
 node_t *column_min(void) {
 node_t *column = header->right, *node;
 	for (node = column->right; node != header; node = node->right) {
-		if (node->rows_or_value < column->rows_or_value) {
+		if (node->rows < column->rows) {
 			column = node;
 		}
 	}
@@ -326,7 +339,7 @@ node_t *row, *node;
 	column->left->right = column->right;
 	for (row = column->down; row != column; row = row->down) {
 		for (node = row->right; node != row; node = node->right) {
-			node->column->rows_or_value--;
+			node->column->rows--;
 			node->down->top = node->top;
 			node->top->down = node->down;
 		}
@@ -338,7 +351,7 @@ node_t *row, *node;
 	for (row = column->top; row != column; row = row->top) {
 		for (node = row->left; node != row; node = node->left) {
 			node->top->down = node->down->top = node;
-			node->column->rows_or_value++;
+			node->column->rows++;
 		}
 	}
 	column->left->right = column->right->left = column;
@@ -349,9 +362,9 @@ unsigned long i, j;
 cell_t *cell;
 	puts("");
 	for (i = 0, cell = cells; i < line_size; i++) {
-		printf("%lu", cell->value);
+		printf("%*lu", digits, cell->value);
 		for (j = 1, cell++; j < line_size; j++, cell++) {
-			printf(" %lu", cell->value);
+			printf(" %*lu", digits, cell->value);
 		}
 		puts("");
 	}
