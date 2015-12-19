@@ -181,14 +181,13 @@ void link_top(node_t *node, node_t *top) {
 }
 
 int generate_grid(void) {
-unsigned long values;
+unsigned long values, i;
 cell_t *cell, **cell_rand;
 node_t *node;
 	cost = 0;
 	if (search_rand() < 0) {
 		return EXIT_FAILURE;
 	}
-	print_grid();
 	for (cell = cells; cell < cells_out; cell++) {
 		cell->value_rand = cell->value;
 	}
@@ -202,7 +201,9 @@ node_t *node;
 		}
 	}
 	while (values);
-	for (cell_rand = cells_rand; cell_rand < cells_rand_out; cell_rand++) {
+	print_grid();
+	puts("");
+	for (cell_rand = cells_rand, i = 1; cell_rand < cells_rand_out; cell_rand++, i++) {
 		(*cell_rand)->value = 0;
 		for (cell = cells, node = nodes; cell < cells_out; cell++, node++) {
 			set_cell(cell, node);
@@ -215,6 +216,7 @@ node_t *node;
 		if (solutions > 1) {
 			(*cell_rand)->value = (*cell_rand)->value_rand;
 		}
+		printf("Cell %lu R%luC%lu Solutions %lu\n", i, (*cell_rand)->row+1, (*cell_rand)->column+1, solutions);
 	}
 	print_grid();
 	printf("\nCost %lu\n", cost);
